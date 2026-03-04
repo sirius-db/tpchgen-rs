@@ -226,6 +226,7 @@ where
                 plan.column_encoding_overrides(),
                 plan.disable_dictionary_encoding_columns(),
                 plan.parquet_version(),
+                plan.parquet_data_pagesize_limit(),
             )
             .await
         }
@@ -250,6 +251,7 @@ where
                 plan.column_encoding_overrides(),
                 plan.disable_dictionary_encoding_columns(),
                 plan.parquet_version(),
+                plan.parquet_data_pagesize_limit(),
             )
             .await?;
             // rename the temp file to the final path

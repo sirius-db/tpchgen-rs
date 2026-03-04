@@ -23,7 +23,7 @@
 //! # }
 //! ```
 
-pub use crate::plan::{GenerationPlan, DEFAULT_PARQUET_ROW_GROUP_BYTES};
+pub use crate::plan::{GenerationPlan, DEFAULT_PARQUET_DATA_PAGESIZE_LIMIT, DEFAULT_PARQUET_ROW_GROUP_BYTES};
 pub use ::parquet::basic::{Compression, Encoding};
 pub use ::parquet::file::properties::WriterVersion;
 use std::collections::HashMap;
@@ -297,6 +297,8 @@ pub struct GeneratorConfig {
     pub column_type_config: ColumnTypeConfig,
     /// Parquet format version
     pub parquet_version: ParquetVersion,
+    /// Best-effort maximum size of a data page in bytes for Parquet files
+    pub parquet_data_pagesize_limit: usize,
 }
 
 impl Default for GeneratorConfig {
@@ -318,6 +320,7 @@ impl Default for GeneratorConfig {
             disable_dictionary_encoding_columns: Vec::new(),
             column_type_config: ColumnTypeConfig::default(),
             parquet_version: ParquetVersion::default(),
+            parquet_data_pagesize_limit: DEFAULT_PARQUET_DATA_PAGESIZE_LIMIT,
         }
     }
 }
@@ -447,6 +450,7 @@ impl TpchGenerator {
             config.disable_dictionary_encoding_columns,
             config.column_type_config,
             config.parquet_version,
+            config.parquet_data_pagesize_limit,
         );
 
         for table in tables {
@@ -635,6 +639,12 @@ impl TpchGeneratorBuilder {
     /// Set Parquet format version (default: V1)
     pub fn with_parquet_version(mut self, version: ParquetVersion) -> Self {
         self.config.parquet_version = version;
+        self
+    }
+
+    /// Set the best-effort maximum data page size in bytes for Parquet files (default: 4MB)
+    pub fn with_parquet_data_pagesize_limit(mut self, limit: usize) -> Self {
+        self.config.parquet_data_pagesize_limit = limit;
         self
     }
 

@@ -38,6 +38,7 @@ pub async fn generate_parquet<W: Write + Send + IntoSize + 'static, I>(
     column_encoding_overrides: &HashMap<String, Encoding>,
     disable_dictionary_encoding_columns: &[String],
     parquet_version: ParquetVersion,
+    data_pagesize_limit: usize,
 ) -> Result<(), io::Error>
 where
     I: Iterator<Item: RecordBatchIterator> + 'static,
@@ -57,7 +58,9 @@ where
     // Compute the parquet schema
     let mut writer_properties_builder = WriterProperties::builder()
         .set_compression(parquet_compression)
-        .set_writer_version(parquet_version.to_writer_version());
+        .set_writer_version(parquet_version.to_writer_version())
+        .set_data_page_size_limit(data_pagesize_limit)
+        .set_data_page_row_count_limit(1 * 1024 * 1024);
 
     for column in uncompressed_column_overrides {
         writer_properties_builder = writer_properties_builder

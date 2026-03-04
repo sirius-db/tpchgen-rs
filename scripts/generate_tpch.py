@@ -48,16 +48,16 @@ TABLE_MULTIPLIERS = {
 TARGET_ROWS_PER_FILE = 100_000_000
 
 # Per-table parquet row group byte defaults
-# These give approximately 1,000,000 rows per row group (maximum).
+# These give approximately 10,000,000 rows per row group (maximum).
 PARQUET_ROW_GROUP_BYTES_DEFAULTS = {
-    "customer": 165000000,
-    "lineitem": 68700000,
-    "nation": 5000,
-    "orders": 99000000,
-    "part": 69000000,
-    "partsupp": 147000000,
-    "region": 5000,
-    "supplier": 154000000,
+    "customer": 1650000000,
+    "lineitem": 687000000,
+    "nation": 50000,
+    "orders": 990000000,
+    "part": 690000000,
+    "partsupp": 1470000000,
+    "region": 50000,
+    "supplier": 1540000000,
 }
 
 # Default: disable compression for certain columns to match cudf-polars defaults at sf3k
@@ -303,7 +303,7 @@ def generate_partition(
 
     # The file will be named table/table.1.format in the temp directory
     src_file = temp_dir / table / f"{table}.{part}.{format}"
-    dst_file = table_dir / f"part.{part - 1}.{format}"
+    dst_file = table_dir / f"{table}.{part - 1}.{format}"
 
     shutil.move(str(src_file), str(dst_file))
     shutil.rmtree(temp_dir)

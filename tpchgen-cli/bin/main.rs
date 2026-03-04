@@ -17,7 +17,7 @@ use std::str::FromStr;
 use tpchgen_arrow::{ColumnTypeConfig, DateColumnType, DecimalColumnType, KeyColumnType};
 use tpchgen_cli::{
     Compression, Encoding, OutputFormat, ParquetVersion, Table, TpchGenerator,
-    DEFAULT_PARQUET_ROW_GROUP_BYTES,
+    DEFAULT_PARQUET_DATA_PAGESIZE_LIMIT, DEFAULT_PARQUET_ROW_GROUP_BYTES,
 };
 
 #[derive(Parser)]
@@ -226,6 +226,15 @@ struct Cli {
     /// Valid values: v1 (default), v2
     #[arg(long, default_value = "v1")]
     parquet_version: ParquetVersion,
+
+    /// Best-effort maximum size of a data page in bytes for Parquet files.
+    ///
+    /// Larger pages reduce metadata overhead and can improve scan performance,
+    /// but reduce the granularity available for predicate pushdown.
+    ///
+    /// Default: 4194304 (4MB)
+    #[arg(long, default_value_t = DEFAULT_PARQUET_DATA_PAGESIZE_LIMIT)]
+    parquet_data_pagesize_limit: usize,
 }
 
 /// Parse a column=encoding pair, validating the encoding.
@@ -368,6 +377,11 @@ impl Cli {
             if self.parquet_version != ParquetVersion::V1 {
                 log::warn!("Parquet version option set but not generating Parquet files");
             }
+            if self.parquet_data_pagesize_limit != DEFAULT_PARQUET_DATA_PAGESIZE_LIMIT {
+                log::warn!(
+                    "Parquet data page size limit option set but not generating Parquet files"
+                );
+            }
         }
 
         // Validate delimiter usage
@@ -411,7 +425,8 @@ impl Cli {
             .with_stdout(self.stdout)
             .with_csv_delimiter(self.delimiter)
             .with_column_type_config(column_type_config)
-            .with_parquet_version(self.parquet_version);
+            .with_parquet_version(self.parquet_version)
+            .with_parquet_data_pagesize_limit(self.parquet_data_pagesize_limit);
 
         // Add tables if specified
         if let Some(tables) = self.tables {

@@ -62,6 +62,8 @@ pub struct OutputPlan {
     column_type_config: ColumnTypeConfig,
     /// Parquet format version
     parquet_version: ParquetVersion,
+    /// Best-effort maximum size of a data page in bytes
+    parquet_data_pagesize_limit: usize,
 }
 
 impl OutputPlan {
@@ -78,6 +80,7 @@ impl OutputPlan {
         disable_dictionary_encoding_columns: Vec<String>,
         column_type_config: ColumnTypeConfig,
         parquet_version: ParquetVersion,
+        parquet_data_pagesize_limit: usize,
     ) -> Self {
         Self {
             table,
@@ -92,6 +95,7 @@ impl OutputPlan {
             disable_dictionary_encoding_columns,
             column_type_config,
             parquet_version,
+            parquet_data_pagesize_limit,
         }
     }
 
@@ -143,6 +147,11 @@ impl OutputPlan {
     /// Return the parquet format version
     pub fn parquet_version(&self) -> ParquetVersion {
         self.parquet_version
+    }
+
+    /// Return the best-effort maximum data page size in bytes
+    pub fn parquet_data_pagesize_limit(&self) -> usize {
+        self.parquet_data_pagesize_limit
     }
 
     /// Return the number of chunks part(ition) count (the number of data chunks
@@ -199,6 +208,8 @@ pub struct OutputPlanGenerator {
     column_type_config: ColumnTypeConfig,
     /// Parquet format version
     parquet_version: ParquetVersion,
+    /// Best-effort maximum size of a data page in bytes
+    parquet_data_pagesize_limit: usize,
 }
 
 impl OutputPlanGenerator {
@@ -215,6 +226,7 @@ impl OutputPlanGenerator {
         disable_dictionary_encoding_columns: Vec<String>,
         column_type_config: ColumnTypeConfig,
         parquet_version: ParquetVersion,
+        parquet_data_pagesize_limit: usize,
     ) -> Self {
         Self {
             format,
@@ -231,6 +243,7 @@ impl OutputPlanGenerator {
             disable_dictionary_encoding_columns,
             column_type_config,
             parquet_version,
+            parquet_data_pagesize_limit,
         }
     }
 
@@ -291,6 +304,7 @@ impl OutputPlanGenerator {
             self.disable_dictionary_encoding_columns.clone(),
             self.column_type_config,
             self.parquet_version,
+            self.parquet_data_pagesize_limit,
         );
 
         self.output_plans.push(plan);
