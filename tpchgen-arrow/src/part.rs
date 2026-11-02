@@ -1,5 +1,7 @@
 use crate::conversions::{decimal128_array_from_iter, string_view_array_from_display_iter};
-use crate::{ColumnTypeConfig, DEFAULT_BATCH_SIZE, DecimalColumnType, KeyColumnType, RecordBatchIterator};
+use crate::{
+    ColumnTypeConfig, DEFAULT_BATCH_SIZE, DecimalColumnType, KeyColumnType, RecordBatchIterator,
+};
 use arrow::array::{ArrayRef, Float64Array, Int32Array, Int64Array, RecordBatch, StringViewArray};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use std::sync::Arc;
@@ -44,6 +46,7 @@ use tpchgen::generators::{PartGenerator, PartGeneratorIterator};
 /// ```
 pub struct PartArrow {
     inner: PartGeneratorIterator<'static>,
+    scale_factor: f64,
     batch_size: usize,
     column_type_config: ColumnTypeConfig,
     /// Cached schema based on column_type_config
@@ -52,10 +55,12 @@ pub struct PartArrow {
 
 impl PartArrow {
     pub fn new(generator: PartGenerator<'static>) -> Self {
-        let column_type_config = ColumnTypeConfig::default();
+        let scale_factor = generator.scale_factor();
+        let column_type_config = ColumnTypeConfig::default().for_scale_factor(scale_factor);
         let schema = make_part_schema(&column_type_config);
         Self {
             inner: generator.iter(),
+            scale_factor,
             batch_size: DEFAULT_BATCH_SIZE,
             column_type_config,
             schema,
@@ -80,6 +85,7 @@ impl RecordBatchIterator for PartArrow {
     }
 
     fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        let config = config.for_scale_factor(self.scale_factor);
         self.schema = make_part_schema(&config);
         self.column_type_config = config;
         self
@@ -97,9 +103,11 @@ impl Iterator for PartArrow {
         }
 
         let p_partkey: ArrayRef = match self.column_type_config.partkey_type {
-            KeyColumnType::I32 => Arc::new(Int32Array::from_iter_values(
-                rows.iter().map(|r| r.p_partkey as i32),
-            )),
+            KeyColumnType::I32 => {
+                Arc::new(Int32Array::from_iter_values(rows.iter().map(|r| {
+                    i32::try_from(r.p_partkey).expect("key exceeds resolved Int32 range")
+                })))
+            }
             KeyColumnType::I64 => Arc::new(Int64Array::from_iter_values(
                 rows.iter().map(|r| r.p_partkey as i64),
             )),

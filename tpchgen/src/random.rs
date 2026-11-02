@@ -57,6 +57,13 @@ impl RowRandomInt {
         lower_bound + value
     }
 
+    /// Sample a 64-bit interval using the reference 32-bit random stream.
+    fn next_long(&mut self, lower_bound: i64, upper_bound: i64) -> i64 {
+        self.next_rand();
+        let range = (upper_bound - lower_bound + 1) as f64;
+        lower_bound + ((self.seed as f64 / Self::MODULUS as f64) * range) as i64
+    }
+
     /// Instantiates a new seed for the next random value.
     pub fn next_rand(&mut self) -> i64 {
         self.seed = (self.seed * Self::MULTIPLIER) % Self::MODULUS;
@@ -110,11 +117,6 @@ impl RowRandomLong {
     /// The default increment used.
     const INCREMENT: i64 = 1;
 
-    /// The default multiplier for 32-bit seeds (a TPC-H oddity).
-    const MULTIPLIER_32: i64 = 16807;
-    /// The default modulus for 32-bit seeds (a TPC-H oddity).
-    const MODULUS_32: i64 = 2147483647;
-
     /// Instantiates a new random number generator with the specified seed and number of random
     /// values per row.
     pub fn new(seed: i64, seeds_per_row: i32) -> Self {
@@ -136,7 +138,10 @@ impl RowRandomLong {
 
     /// Instantiates a new seed for the next random value.
     fn next_rand(&mut self) -> i64 {
-        self.seed = (self.seed.wrapping_mul(Self::MULTIPLIER)) + Self::INCREMENT;
+        self.seed = self
+            .seed
+            .wrapping_mul(Self::MULTIPLIER)
+            .wrapping_add(Self::INCREMENT);
         self.usage += 1;
         self.seed
     }
@@ -144,8 +149,7 @@ impl RowRandomLong {
     /// Signals that all seeds for the current row have been consumed and we need to start
     /// generating new ones.
     pub fn row_finished(&mut self) {
-        // For the 64-bit case, TPC-H actually uses the 32-bit advance method
-        self.advance_seed_32((self.seeds_per_row - self.usage) as i64);
+        self.advance_seed((self.seeds_per_row - self.usage) as i64);
         self.usage = 0;
     }
 
@@ -157,21 +161,21 @@ impl RowRandomLong {
         }
 
         // Advance the seed
-        self.advance_seed_32((self.seeds_per_row as i64) * row_count);
+        self.advance_seed((self.seeds_per_row as i64) * row_count);
     }
 
-    // TPC-H uses this 32-bit method even for 64-bit numbers
-    fn advance_seed_32(&mut self, mut count: i64) {
-        let mut multiplier: i64 = Self::MULTIPLIER_32;
-
+    // Compose the same step as next_rand, modulo 2^64, in O(log(count)).
+    // Row padding and partition skips must reach the state of sequential draws.
+    fn advance_seed(&mut self, mut count: i64) {
+        let mut multiplier = Self::MULTIPLIER;
+        let mut increment = Self::INCREMENT;
         while count > 0 {
             if count % 2 != 0 {
-                self.seed = (multiplier * self.seed) % Self::MODULUS_32;
+                self.seed = multiplier.wrapping_mul(self.seed).wrapping_add(increment);
             }
-
-            // Integer division, truncates
             count /= 2;
-            multiplier = (multiplier * multiplier) % Self::MODULUS_32;
+            increment = increment.wrapping_mul(multiplier.wrapping_add(1));
+            multiplier = multiplier.wrapping_mul(multiplier);
         }
     }
 }
@@ -273,7 +277,7 @@ impl RandomBoundedLong {
                 .next_long(self.lower_bound, self.upper_bound)
         } else {
             self.random_int
-                .next_int(self.lower_bound as i32, self.upper_bound as i32) as i64
+                .next_long(self.lower_bound, self.upper_bound)
         }
     }
 
@@ -630,6 +634,88 @@ impl<'a> RandomText<'a> {
 mod test {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn wide_bounds_preserve_reference_32bit_random_stream() {
+        let mut random = RowRandomInt::new(1808217256, 1);
+        for expected in [3103786886, 1346181591, 1273995516, 42629889] {
+            assert_eq!(random.next_long(1, 4_000_000_000), expected);
+            random.row_finished();
+        }
+    }
+
+    #[test]
+    fn long_random_skip_matches_sequential_draws() {
+        for seed in [1, 851767375, 1808217256] {
+            for seeds_per_row in [1, 7] {
+                for rows in [0, 1, 2, 13, 513, 4096] {
+                    let mut expected = RowRandomLong::new(seed, seeds_per_row);
+                    for _ in 0..rows * seeds_per_row as i64 {
+                        expected.next_rand();
+                    }
+                    let mut actual = RowRandomLong::new(seed, seeds_per_row);
+                    actual.advance_rows(rows);
+                    assert_eq!(
+                        actual.seed, expected.seed,
+                        "seed={seed}, seeds_per_row={seeds_per_row}, rows={rows}"
+                    );
+                    assert_eq!(actual.usage, 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn long_random_padding_and_partial_skip_match_full_rows() {
+        for seed in [1, 851767375, 1808217256] {
+            for seeds_per_row in [1, 7] {
+                for used in 0..=seeds_per_row {
+                    let mut partial = RowRandomLong::new(seed, seeds_per_row);
+                    for _ in 0..used {
+                        partial.next_rand();
+                    }
+                    let mut padded = partial;
+                    padded.row_finished();
+                    let mut full_row = RowRandomLong::new(seed, seeds_per_row);
+                    for _ in 0..seeds_per_row {
+                        full_row.next_rand();
+                    }
+                    assert_eq!(padded.seed, full_row.seed);
+                    assert_eq!(padded.usage, 0);
+
+                    for rows in [0, 1, 17] {
+                        let mut skipped = partial;
+                        skipped.advance_rows(rows);
+                        let mut expected = RowRandomLong::new(seed, seeds_per_row);
+                        let full_rows = rows + i64::from(used != 0);
+                        for _ in 0..full_rows * seeds_per_row as i64 {
+                            expected.next_rand();
+                        }
+                        assert_eq!(
+                            skipped.seed, expected.seed,
+                            "seed={seed}, seeds_per_row={seeds_per_row}, used={used}, rows={rows}"
+                        );
+                        assert_eq!(skipped.usage, 0);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn long_random_skip_handles_large_offsets() {
+        // Expected states from dbgen's standalone AdvanceRand64 recurrence.
+        for (seed, seeds_per_row, rows, expected) in [
+            (1808217256, 7, 1_i64 << 32, 7658456161259566248),
+            (851767375, 1, 1_000_000_000_000, -8865385118154596273),
+            (1, 1, (1_i64 << 40) + 17, -4568529660493599906),
+        ] {
+            let mut random = RowRandomLong::new(seed, seeds_per_row);
+            random.advance_rows(rows);
+            assert_eq!(random.seed, expected);
+        }
+    }
+
     #[test]
     fn test_small_random_alpha_numeric() {
         RandomAlphaNumericTest {

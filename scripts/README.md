@@ -31,8 +31,13 @@ By default, the script will produce output that differs from a default `tpchgen-
 1. Column compression is optimized by not compressing incompressable columns. This affects the columns `c_mktsegment,c_nationkey,l_commitdate,l_discount,l_quantity,l_receiptdate,l_shipdate,l_shipinstruct,l_shipmode,l_tax,n_nationkey,n_regionkey,o_orderdate,o_orderpriority,o_shippriority,p_brand,p_container,p_mfgr,p_size,p_type,r_regionkey,s_nationkey`.
 2. Column encoding is optimized. In particular, we use `DELTA_LENGTH_BYTE_ARRAY` for string columns, rather than `plain`.
 3. We use parquet format version 2 instead of version 1.
-4. We use Int32 identifiers where possible (nationkey and regionkey columns)
+4. We use Int32 identifiers where possible. Order, customer, part, and supplier keys automatically widen to Int64 when their full key range exceeds Int32; matching primary and foreign keys use the same width across tables and partitions. Order keys account for their deliberate gaps; nation and region keys default to Int32.
 5. Row Group and Partition sizes are optimized for GPUs. We target approximately 1,000,000 rows per row group and 100,000,000 rows per file.
+
+Both the wrapper and CLI use corrected 64-bit random-stream advancement at SF
+30,000 and above. This makes values independent of partition layout but changes
+legacy output. See the [generation compatibility note](../README.md#generating-data)
+before reusing an existing dataset.
 
 ## Output Metadata
 

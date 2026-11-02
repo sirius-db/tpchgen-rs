@@ -400,6 +400,11 @@ pub struct PartGenerator<'a> {
 }
 
 impl<'a> PartGenerator<'a> {
+    /// Returns the scale factor for the entire dataset, regardless of partition.
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
+    }
+
     /// Base scale for part generation
     const SCALE_BASE: i32 = 200_000;
 
@@ -670,6 +675,11 @@ pub struct SupplierGenerator<'a> {
 }
 
 impl<'a> SupplierGenerator<'a> {
+    /// Returns the scale factor for the entire dataset, regardless of partition.
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
+    }
+
     /// Base scale for supplier generation
     const SCALE_BASE: i32 = 10_000;
 
@@ -981,6 +991,11 @@ pub struct CustomerGenerator<'a> {
 }
 
 impl<'a> CustomerGenerator<'a> {
+    /// Returns the scale factor for the entire dataset, regardless of partition.
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
+    }
+
     /// Base scale for customer generation
     const SCALE_BASE: i32 = 150_000;
 
@@ -1196,6 +1211,11 @@ pub struct PartSuppGenerator<'a> {
 }
 
 impl<'a> PartSuppGenerator<'a> {
+    /// Returns the scale factor for the entire dataset, regardless of partition.
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
+    }
+
     /// Base scale for part-supplier generation
     const SUPPLIERS_PER_PART: i32 = 4;
 
@@ -1491,6 +1511,11 @@ pub struct OrderGenerator<'a> {
 }
 
 impl<'a> OrderGenerator<'a> {
+    /// Returns the scale factor for the entire dataset, regardless of partition.
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
+    }
+
     /// Base scale for order generation
     pub const SCALE_BASE: i32 = 1_500_000;
 
@@ -1860,6 +1885,11 @@ pub struct LineItemGenerator<'a> {
 }
 
 impl<'a> LineItemGenerator<'a> {
+    /// Returns the scale factor for the entire dataset, regardless of partition.
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
+    }
+
     // Constants for line item generation
     const QUANTITY_MIN: i32 = 1;
     const QUANTITY_MAX: i32 = 50;
@@ -1964,13 +1994,13 @@ impl<'a> LineItemGenerator<'a> {
 
     /// Creates a part key random generator
     pub fn create_part_key_random(scale_factor: f64) -> RandomBoundedLong {
-        // If scale_factor >= 30000, use long `RandomBoundedLong` otherwise
-        // use `RandomBoundedInt` to avoid overflow.
+        let max_part_key = (PartGenerator::SCALE_BASE as f64 * scale_factor) as i64;
+        // Preserve dbgen's random stream; either stream can sample 64-bit key bounds.
         RandomBoundedLong::new_with_seeds_per_row(
             1808217256,
             scale_factor >= 30000.0,
             Self::PART_KEY_MIN as i64,
-            (PartGenerator::SCALE_BASE as f64 * scale_factor) as i64,
+            max_part_key,
             OrderGenerator::LINE_COUNT_MAX,
         )
     }

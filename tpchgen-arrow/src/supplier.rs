@@ -33,6 +33,7 @@ use tpchgen::generators::{SupplierGenerator, SupplierGeneratorIterator};
 /// ```
 pub struct SupplierArrow {
     inner: SupplierGeneratorIterator<'static>,
+    scale_factor: f64,
     batch_size: usize,
     column_type_config: ColumnTypeConfig,
     /// Cached schema based on column_type_config
@@ -41,10 +42,12 @@ pub struct SupplierArrow {
 
 impl SupplierArrow {
     pub fn new(generator: SupplierGenerator<'static>) -> Self {
-        let column_type_config = ColumnTypeConfig::default();
+        let scale_factor = generator.scale_factor();
+        let column_type_config = ColumnTypeConfig::default().for_scale_factor(scale_factor);
         let schema = make_supplier_schema(&column_type_config);
         Self {
             inner: generator.iter(),
+            scale_factor,
             batch_size: DEFAULT_BATCH_SIZE,
             column_type_config,
             schema,
@@ -69,6 +72,7 @@ impl RecordBatchIterator for SupplierArrow {
     }
 
     fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        let config = config.for_scale_factor(self.scale_factor);
         self.schema = make_supplier_schema(&config);
         self.column_type_config = config;
         self
@@ -86,9 +90,11 @@ impl Iterator for SupplierArrow {
         }
 
         let s_suppkey: ArrayRef = match self.column_type_config.suppkey_type {
-            KeyColumnType::I32 => Arc::new(Int32Array::from_iter_values(
-                rows.iter().map(|r| r.s_suppkey as i32),
-            )),
+            KeyColumnType::I32 => {
+                Arc::new(Int32Array::from_iter_values(rows.iter().map(|r| {
+                    i32::try_from(r.s_suppkey).expect("key exceeds resolved Int32 range")
+                })))
+            }
             KeyColumnType::I64 => Arc::new(Int64Array::from_iter_values(
                 rows.iter().map(|r| r.s_suppkey as i64),
             )),

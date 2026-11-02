@@ -83,6 +83,32 @@ Key options:
 | `--use-timestamp-type` | Use `timestamp_ms` for date columns instead of `date32` | off |
 | `--use-large-ids` | Use `i64` for `nationkey`/`regionkey` instead of `i32` | off |
 
+Parquet join keys use `i32` while their full key range fits in 2,147,483,647,
+and automatically widen to `i64` otherwise. The choice applies to every primary
+and foreign key in the same family across all tables and partitions:
+
+| Key family | Maximum key | First integer scale factor using `i64` |
+| ---------- | ----------- | ------------------------------------- |
+| `orderkey` | 32 × floor(N / 8) + (N mod 8), N = floor(1,500,000 × SF) | 358 |
+| `partkey` | floor(200,000 × SF) | 10,738 |
+| `custkey` | floor(150,000 × SF) | 14,317 |
+| `suppkey` | floor(10,000 × SF) | 214,749 |
+
+Order keys contain deliberate gaps; their maximum is larger than the order row
+count. `nationkey` and `regionkey` remain `i32` by default.
+The `tpchgen-cli` binary accepts `--orderkey-type`, `--custkey-type`,
+`--partkey-type`, and `--suppkey-type` with `i64` to request wider keys at
+smaller scales. These options are not exposed by `scripts/generate_tpch.py`.
+Their default `i32` setting widens automatically when needed. This behavior
+also applies to the Arrow API.
+
+At SF 30,000 and above, generating the same rows with different partition plans
+produces identical values. Random draws, unused draws at the end of each row,
+and partition skips all advance the same 64-bit sequence. This corrects legacy
+behavior and can change output compared with older versions and reference
+`dbgen` at these scales. Regenerate all tables together rather than mixing old
+and corrected data. The random sequence below SF 30,000 is preserved.
+
 The script writes each table into its own subdirectory as zero-indexed partition files:
 
 ```

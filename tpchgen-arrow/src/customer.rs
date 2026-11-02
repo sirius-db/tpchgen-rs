@@ -46,6 +46,7 @@ use tpchgen::generators::{CustomerGenerator, CustomerGeneratorIterator};
 /// ```
 pub struct CustomerArrow {
     inner: CustomerGeneratorIterator<'static>,
+    scale_factor: f64,
     batch_size: usize,
     column_type_config: ColumnTypeConfig,
     /// Cached schema based on column_type_config
@@ -54,10 +55,12 @@ pub struct CustomerArrow {
 
 impl CustomerArrow {
     pub fn new(generator: CustomerGenerator<'static>) -> Self {
-        let column_type_config = ColumnTypeConfig::default();
+        let scale_factor = generator.scale_factor();
+        let column_type_config = ColumnTypeConfig::default().for_scale_factor(scale_factor);
         let schema = make_customer_schema(&column_type_config);
         Self {
             inner: generator.iter(),
+            scale_factor,
             batch_size: DEFAULT_BATCH_SIZE,
             column_type_config,
             schema,
@@ -82,6 +85,7 @@ impl RecordBatchIterator for CustomerArrow {
     }
 
     fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        let config = config.for_scale_factor(self.scale_factor);
         self.schema = make_customer_schema(&config);
         self.column_type_config = config;
         self
@@ -99,9 +103,11 @@ impl Iterator for CustomerArrow {
         }
 
         let c_custkey: ArrayRef = match self.column_type_config.custkey_type {
-            KeyColumnType::I32 => Arc::new(Int32Array::from_iter_values(
-                rows.iter().map(|r| r.c_custkey as i32),
-            )),
+            KeyColumnType::I32 => {
+                Arc::new(Int32Array::from_iter_values(rows.iter().map(|r| {
+                    i32::try_from(r.c_custkey).expect("key exceeds resolved Int32 range")
+                })))
+            }
             KeyColumnType::I64 => Arc::new(Int64Array::from_iter_values(
                 rows.iter().map(|r| r.c_custkey as i64),
             )),

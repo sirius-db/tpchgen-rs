@@ -55,6 +55,7 @@ use tpchgen::generators::{LineItemGenerator, LineItemGeneratorIterator};
 // https://github.com/apache/datafusion/blob/a1ae15826245097e7c12d4f0ed3425b25af6c431/benchmarks/src/tpch/mod.rs#L104-L103
 pub struct LineItemArrow {
     inner: LineItemGeneratorIterator<'static>,
+    scale_factor: f64,
     batch_size: usize,
     column_type_config: ColumnTypeConfig,
     /// Cached schema based on column_type_config
@@ -63,10 +64,12 @@ pub struct LineItemArrow {
 
 impl LineItemArrow {
     pub fn new(generator: LineItemGenerator<'static>) -> Self {
-        let column_type_config = ColumnTypeConfig::default();
+        let scale_factor = generator.scale_factor();
+        let column_type_config = ColumnTypeConfig::default().for_scale_factor(scale_factor);
         let schema = make_lineitem_schema(&column_type_config);
         Self {
             inner: generator.iter(),
+            scale_factor,
             batch_size: DEFAULT_BATCH_SIZE,
             column_type_config,
             schema,
@@ -91,6 +94,7 @@ impl RecordBatchIterator for LineItemArrow {
     }
 
     fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        let config = config.for_scale_factor(self.scale_factor);
         self.schema = make_lineitem_schema(&config);
         self.column_type_config = config;
         self
@@ -109,19 +113,26 @@ impl Iterator for LineItemArrow {
         }
 
         // Convert column by column
-        let l_orderkey = Int64Array::from_iter_values(rows.iter().map(|row| row.l_orderkey as i64));
-        let l_partkey: ArrayRef = match self.column_type_config.partkey_type {
-            KeyColumnType::I32 => Arc::new(Int32Array::from_iter_values(
-                rows.iter().map(|row| row.l_partkey as i32),
+        let l_orderkey: ArrayRef = match self.column_type_config.orderkey_type {
+            KeyColumnType::I32 => Arc::new(Int32Array::from_iter_values(rows.iter().map(|row| {
+                i32::try_from(row.l_orderkey).expect("key exceeds resolved Int32 range")
+            }))),
+            KeyColumnType::I64 => Arc::new(Int64Array::from_iter_values(
+                rows.iter().map(|row| row.l_orderkey),
             )),
+        };
+        let l_partkey: ArrayRef = match self.column_type_config.partkey_type {
+            KeyColumnType::I32 => Arc::new(Int32Array::from_iter_values(rows.iter().map(|row| {
+                i32::try_from(row.l_partkey).expect("key exceeds resolved Int32 range")
+            }))),
             KeyColumnType::I64 => Arc::new(Int64Array::from_iter_values(
                 rows.iter().map(|row| row.l_partkey as i64),
             )),
         };
         let l_suppkey: ArrayRef = match self.column_type_config.suppkey_type {
-            KeyColumnType::I32 => Arc::new(Int32Array::from_iter_values(
-                rows.iter().map(|row| row.l_suppkey as i32),
-            )),
+            KeyColumnType::I32 => Arc::new(Int32Array::from_iter_values(rows.iter().map(|row| {
+                i32::try_from(row.l_suppkey).expect("key exceeds resolved Int32 range")
+            }))),
             KeyColumnType::I64 => Arc::new(Int64Array::from_iter_values(
                 rows.iter().map(|row| row.l_suppkey as i64),
             )),
@@ -210,7 +221,7 @@ impl Iterator for LineItemArrow {
         let batch = RecordBatch::try_new(
             Arc::clone(self.schema()),
             vec![
-                Arc::new(l_orderkey),
+                l_orderkey,
                 l_partkey,
                 l_suppkey,
                 Arc::new(l_linenumber),
@@ -235,6 +246,10 @@ impl Iterator for LineItemArrow {
 }
 
 fn make_lineitem_schema(config: &ColumnTypeConfig) -> SchemaRef {
+    let orderkey_type = match config.orderkey_type {
+        KeyColumnType::I32 => DataType::Int32,
+        KeyColumnType::I64 => DataType::Int64,
+    };
     let partkey_type = match config.partkey_type {
         KeyColumnType::I32 => DataType::Int32,
         KeyColumnType::I64 => DataType::Int64,
@@ -255,7 +270,7 @@ fn make_lineitem_schema(config: &ColumnTypeConfig) -> SchemaRef {
     };
 
     Arc::new(Schema::new(vec![
-        Field::new("l_orderkey", DataType::Int64, false),
+        Field::new("l_orderkey", orderkey_type, false),
         Field::new("l_partkey", partkey_type, false),
         Field::new("l_suppkey", suppkey_type, false),
         Field::new("l_linenumber", DataType::Int32, false),

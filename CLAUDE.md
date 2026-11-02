@@ -90,7 +90,7 @@ This is a Cargo workspace with four crates:
 
 **Performance philosophy**: No heap allocations during row generation; integer arithmetic instead of floating-point; multiple cores with tuned buffer sizes. The core `tpchgen` crate avoids all dependencies to keep it embeddable.
 
-**Correctness**: Output must be byte-for-byte identical to the original C `dbgen` tool for TBL format. The integration tests verify against gzipped reference fixtures. See `TESTING.md` for SHA checksums at various scale factors.
+**Correctness**: Below SF 30,000, TBL output must match the original C `dbgen` tool. At SF 30,000 and above, the 64-bit random stream must produce the same rows regardless of partition layout; its corrected row padding and skip-ahead deliberately differ from legacy `dbgen` behavior. Keep tests for both small-scale reference fixtures and large-scale partition consistency. See `TESTING.md` for existing reference checksums.
 
 ## Conformance Testing
 
